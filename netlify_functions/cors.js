@@ -1,51 +1,48 @@
-import fetch from 'node-fetch'
+const express = require('express')
+const request = require('request')
+const bodyParser = require('body-parser')
+// const cors = require('cors')
+const app = express()
 
-exports.handler = async (event, context) => {
-    let uri = event.path
+let myLimit = typeof(process.argv[2]) != 'undefined' ? process.argv[2] : '100kb';
+console.log('Using limit: ', myLimit);
 
-    uri = uri.split('.netlify/functions/cors/')[1]
-    uri = decodeURIComponent(uri)
-    uri = new URL(uri)
+app.use(bodyParser.json({limit: myLimit}));
+// app.use(cors({
+//     origin: '*',
+//     methods: ['GET', 'PUT', 'PATCH',  'POST', 'DELETE'],
+//     credentials: true,
+// }))
 
-    for(let i in event.queryStringParameters){
-        uri.searchParams.append(i, event.queryStringParameters[i])
-    }
+app.all('*', function (req, res, next) {
 
-    let cookie_string = event.headers.cookie || ''
-    let userAgent = event.headers['user-agent'] || ''
-    
-    let header_to_send = {
-        'Cookie': cookie_string,
-        'User-Agent': userAgent,
-        'content-type': 'application/json',
-        'accept': '*/*',
-        'host': uri.host
-    }
+    // Set CORS headers: allow all origins, methods, and headers: you may want to lock this down in a production environment
+    res.header("Access-Control-Allow-Methods", "GET, PUT, PATCH, POST, DELETE");
+    res.header("Access-Control-Allow-Headers", 'X-Requested-With, Content-Type, Authorization, Origin, Accept');
+    res.header("Access-Control-Allow-Origin", "http://localhost:3000/Home, https://dev-support-dashboard.netlify.app/, *");
+    res.header('Access-Control-Allow-Credentials', 'true')
 
-    let options = {
-        method: event.httpMethod.toUpperCase(),
-        headers: header_to_send,
-        body: event.body
-    }
-
-    if(event.httpMethod.toUpperCase() == 'GET' || event.httpMethod.toUpperCase() == 'HEAD') delete options.body
-
-    let res = await fetch(uri, options)
-    let res_text = await res.text()
-    let headers = res.headers.raw()
-
-    let cookie_header = null
-    if(headers['set-cookie']) cookie_header = headers['set-cookie']
-
-    return{
-        statusCode: 200,
-        body: res_text,
-        headers: {
-            'content-type': String(header['content-type']) || 'text/plain'
-        },
-        multiValueHeaders: {
-            'set-cookie': cookie_header || []
+    if (req.method === 'OPTIONS') {
+        // CORS Preflight
+        res.send();
+    } else {
+        let targetURL = req.header('Target-URL'); // Target-URL ie. https://example.com or http://example.com
+        if (!targetURL) {
+            res.send(500, { error: 'There is no Target-Endpoint header in the request' });
+            return;
         }
+        request({ url: targetURL + req.url + '/', method: req.method, json: req.body, headers: {'Authorization': req.header('Authorization')} },
+            function (error, response, body) {
+                if (error) {
+                    console.error('error: ' + response.statusCode)
+                }
+//                console.log(body);
+            }).pipe(res);
     }
+});
 
-}
+app.set('port', process.env.PORT || 3005);
+
+app.listen(app.get('port'), function () {
+    console.log('Proxy server listening on port ' + app.get('port'));
+});
